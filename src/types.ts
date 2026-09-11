@@ -6,6 +6,17 @@ export interface CaseImage {
   created_at: string;
 }
 
+export interface CaseVideo {
+  id: string;
+  format_id: string;
+  video_url: string;
+  file_name: string;
+  file_size: number | null;
+  mime_type: string | null;
+  sort_order: number;
+  created_at: string;
+}
+
 export interface AdFormat {
   id: string;
   title: string;
@@ -19,10 +30,13 @@ export interface AdFormat {
   created_at: string;
   updated_at: string;
   case_images?: CaseImage[];
+  case_videos?: CaseVideo[];
   cliente: string | null;
   plataforma: string | null;
   publish_date: string | null;
   video_links: string[];
+  additional_formats: string[];
+  outros_formato_name: string | null;
   impressoes: number | null;
   alcance: number | null;
   cliques: number | null;
@@ -49,6 +63,8 @@ export interface AdFormatInput {
   plataforma?: string;
   publish_date?: string;
   video_links?: string[];
+  additional_formats?: string[];
+  outros_formato_name?: string | null;
   impressoes?: number | null;
   alcance?: number | null;
   cliques?: number | null;
@@ -77,19 +93,26 @@ export const VERTICALS = [
 ] as const;
 
 export const FORMAT_TYPES = [
+  "Home Day",
+  "Home Super Premium",
+  "Banner Vídeo",
+  "Big Banner",
   "Billboard",
+  "Maxiboard",
+  "Super Leaderboard",
+  "Branded Content",
+  "Matéria Publicitária",
+  "Patrocínio de Editoria",
+  "Régua",
+  "Widget",
   "Retângulo Médio",
-  "Retângulo Grande",
-  "Native Carrossel",
-  "Native Chamada",
-  "Comercial",
-  "Patrocínio",
-  "Rich Media",
-  "Vídeo",
-  "Display",
-  "Mobile",
-  "Interstitial",
-  "Roadblock",
+  "Half Page",
+  "Vídeo Vertical",
+  "Interativo",
+  "Carrossel",
+  "Super Carrossel",
+  "Clickshop",
+  "Degustação Patrocinada",
   "Outros",
 ] as const;
 
@@ -139,3 +162,14 @@ export const METRIC_DEFS: MetricDef[] = [
   { key: "taxa_engajamento", label: "Taxa de engajamento", suffix: "%", isPercentage: true },
   { key: "conversoes", label: "Conversões" },
 ];
+
+export const HOME_DAY_FORMAT = "Home Day";
+export const OUTROS_FORMAT = "Outros";
+
+export function isHomeDay(formatType: string): boolean {
+  return formatType === HOME_DAY_FORMAT;
+}
+
+export function isOutros(formatType: string): boolean {
+  return formatType === OUTROS_FORMAT;
+}

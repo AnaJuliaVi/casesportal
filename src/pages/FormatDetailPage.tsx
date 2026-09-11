@@ -19,15 +19,23 @@ import {
   Link2,
   BarChart3,
   TrendingUp,
+  Film,
+  FileVideo,
+  UploadCloud,
+  Play,
 } from "lucide-react";
 import { supabase } from "../lib/supabase";
-import type { AdFormat, CaseImage } from "../types";
+import type { AdFormat, CaseImage, CaseVideo } from "../types";
 import {
   VERTICALS,
   FORMAT_TYPES,
   PLATFORMS,
   STATUS_OPTIONS,
   METRIC_DEFS,
+  HOME_DAY_FORMAT,
+  OUTROS_FORMAT,
+  isHomeDay,
+  isOutros,
 } from "../types";
 import {
   getStatusBadgeClasses,
@@ -43,6 +51,24 @@ interface EditImage {
   isNew?: boolean;
   file?: File;
   markedForDeletion?: boolean;
+}
+
+interface EditVideo {
+  id?: string;
+  url: string;
+  fileName: string;
+  fileSize?: number;
+  mimeType?: string;
+  isNew?: boolean;
+  file?: File;
+  markedForDeletion?: boolean;
+}
+
+function formatFileSize(bytes: number): string {
+  if (bytes >= 1024 * 1024 * 1024) return `${(bytes / (1024 * 1024 * 1024)).toFixed(1)} GB`;
+  if (bytes >= 1024 * 1024) return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+  if (bytes >= 1024) return `${(bytes / 1024).toFixed(0)} KB`;
+  return `${bytes} B`;
 }
 
 export default function FormatDetailPage() {
@@ -61,7 +87,10 @@ export default function FormatDetailPage() {
   const [editData, setEditData] = useState<Partial<AdFormat>>({});
   const [linkInput, setLinkInput] = useState("");
   const [editImages, setEditImages] = useState<EditImage[]>([]);
+  const [editVideos, setEditVideos] = useState<EditVideo[]>([]);
+  const [showEditFormatDropdown, setShowEditFormatDropdown] = useState(false);
   const editFileInputRef = useRef<HTMLInputElement>(null);
+  const editVideoInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     async function fetchFormat() {
@@ -71,7 +100,7 @@ export default function FormatDetailPage() {
       try {
         const { data, error: fetchError } = await supabase
           .from("ad_formats")
-          .select("*, case_images(*)")
+          .select("*, case_images(*), case_videos(*)")
           .eq("id", id)
           .maybeSingle();
 
@@ -95,6 +124,20 @@ export default function FormatDetailPage() {
               : [];
         setGalleryImages(imgs);
         setEditData(fmt);
+        setEditVideos(
+          fmt.case_videos
+            ? [...fmt.case_videos]
+                .sort((a, b) => a.sort_order - b.sort_order)
+                .map((v) => ({
+                  id: v.id,
+                  url: v.video_url,
+                  fileName: v.file_name,
+                  fileSize: v.file_size ?? undefined,
+                  mimeType: v.mime_type ?? undefined,
+                  isNew: false,
+                }))
+            : []
+        );
       } catch (err) {
         setError(
           err instanceof Error ? err.message : "Erro ao carregar case"
@@ -126,6 +169,21 @@ export default function FormatDetailPage() {
     setEditing(false);
     if (format) setEditData({ ...format });
     setEditImages([]);
+    setEditVideos(
+      format?.case_videos
+        ? [...format.case_videos]
+            .sort((a, b) => a.sort_order - b.sort_order)
+            .map((v) => ({
+              id: v.id,
+              url: v.video_url,
+              fileName: v.file_name,
+              fileSize: v.file_size ?? undefined,
+              mimeType: v.mime_type ?? undefined,
+              isNew: false,
+            }))
+        : []
+    );
+    setShowEditFormatDropdown(false);
   };
 
   const handleEditImageSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -200,6 +258,75 @@ export default function FormatDetailPage() {
     } else {
       setEditData({ ...editData, [name]: value });
     }
+  };
+
+  const handleEditFormatTypeChange = (value: string) => {
+    setEditData({
+      ...editData,
+      format_type: value,
+      additional_formats: value === HOME_DAY_FORMAT ? (editData.additional_formats || []) : [],
+      outros_formato_name: value === OUTROS_FORMAT ? (editData.outros_formato_name || "") : null,
+    });
+  };
+
+  const addEditAdditionalFormat = (fmt: string) => {
+    if (editData.additional_formats?.includes(fmt)) return;
+    setEditData({
+      ...editData,
+      additional_formats: [...(editData.additional_formats || []), fmt],
+    });
+    setShowEditFormatDropdown(false);
+  };
+
+  const removeEditAdditionalFormat = (fmt: string) => {
+    setEditData({
+      ...editData,
+      additional_formats: editData.additional_formats?.filter((f) => f !== fmt) || [],
+    });
+  };
+
+  const availableEditAdditionalFormats = FORMAT_TYPES.filter(
+    (f) =>
+      f !== HOME_DAY_FORMAT &&
+      f !== OUTROS_FORMAT &&
+      !editData.additional_formats?.includes(f)
+  );
+
+  const handleEditVideoSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = Array.from(e.target.files || []);
+    if (files.length === 0) return;
+    const validVideos: EditVideo[] = [];
+    for (const file of files) {
+      if (!file.type.startsWith("video/")) {
+        setError("Por favor, selecione apenas arquivos de vídeo.");
+        continue;
+      }
+      if (file.size > 100 * 1024 * 1024) {
+        setError("Cada vídeo deve ter no máximo 100MB.");
+        continue;
+      }
+      validVideos.push({
+        url: URL.createObjectURL(file),
+        fileName: file.name,
+        fileSize: file.size,
+        mimeType: file.type,
+        isNew: true,
+        file,
+      });
+    }
+    if (validVideos.length > 0) {
+      setError(null);
+      setEditVideos((prev) => [...prev, ...validVideos]);
+    }
+    if (editVideoInputRef.current) editVideoInputRef.current.value = "";
+  };
+
+  const removeEditVideo = (index: number) => {
+    setEditVideos((prev) =>
+      prev.map((v, i) =>
+        i === index ? { ...v, markedForDeletion: !v.markedForDeletion } : v
+      )
+    );
   };
 
   const addEditLink = () => {
@@ -316,6 +443,58 @@ export default function FormatDetailPage() {
         }
       }
 
+      // Upload new videos
+      const newVideos = editVideos.filter((v) => v.isNew && v.file && !v.markedForDeletion);
+      for (const v of newVideos) {
+        if (!v.file) continue;
+        const fileExt = v.file.name.split(".").pop();
+        const fileName = `${Date.now()}-${Math.random().toString(36).substring(2)}.${fileExt}`;
+        const filePath = `videos/${fileName}`;
+        const { error: uploadError } = await supabase.storage
+          .from("ad-formats")
+          .upload(filePath, v.file, { cacheControl: "3600", upsert: false });
+        if (uploadError) throw uploadError;
+        const { data: urlData } = supabase.storage.from("ad-formats").getPublicUrl(filePath);
+        v.url = urlData.publicUrl;
+        v.isNew = false;
+      }
+
+      // Delete marked videos from storage + DB
+      const markedVideos = editVideos.filter((v) => v.markedForDeletion && v.id && !v.isNew);
+      for (const v of markedVideos) {
+        if (v.id) await supabase.from("case_videos").delete().eq("id", v.id);
+        try {
+          const url = new URL(v.url);
+          const path = url.pathname.split("/").slice(-2).join("/");
+          await supabase.storage.from("ad-formats").remove([path]);
+        } catch {
+          // ignore URL parse errors
+        }
+      }
+
+      // Reorder and update remaining videos
+      const remainingVideos = editVideos.filter((v) => !v.markedForDeletion);
+      const newVideoRecords: { format_id: string; video_url: string; file_name: string; file_size: number; mime_type: string; sort_order: number }[] = [];
+      for (let i = 0; i < remainingVideos.length; i++) {
+        const v = remainingVideos[i];
+        if (v.id) {
+          await supabase.from("case_videos").update({ sort_order: i }).eq("id", v.id);
+        } else {
+          newVideoRecords.push({
+            format_id: id,
+            video_url: v.url,
+            file_name: v.fileName,
+            file_size: v.fileSize ?? 0,
+            mime_type: v.mimeType ?? "",
+            sort_order: i,
+          });
+        }
+      }
+      if (newVideoRecords.length > 0) {
+        const { error: insertVideoError } = await supabase.from("case_videos").insert(newVideoRecords);
+        if (insertVideoError) throw insertVideoError;
+      }
+
       const { data, error: updateError } = await supabase
         .from("ad_formats")
         .update({
@@ -329,6 +508,8 @@ export default function FormatDetailPage() {
           plataforma: editData.plataforma || null,
           publish_date: editData.publish_date || null,
           video_links: editData.video_links || [],
+          additional_formats: isHomeDay(editData.format_type || "") ? (editData.additional_formats || []) : [],
+          outros_formato_name: isOutros(editData.format_type || "") ? (editData.outros_formato_name?.trim() || null) : null,
           impressoes: editData.impressoes || null,
           alcance: editData.alcance || null,
           cliques: editData.cliques || null,
@@ -342,7 +523,7 @@ export default function FormatDetailPage() {
           outros_resultados: editData.outros_resultados?.trim() || null,
         })
         .eq("id", id)
-        .select("*, case_images(*)")
+        .select("*, case_images(*), case_videos(*)")
         .single();
 
       if (updateError) throw updateError;
@@ -358,7 +539,23 @@ export default function FormatDetailPage() {
             : [];
       setGalleryImages(imgs);
 
+      const vids =
+        data.case_videos
+          ? [...data.case_videos]
+              .sort((a, b) => a.sort_order - b.sort_order)
+              .map((v) => ({
+                id: v.id,
+                url: v.video_url,
+                fileName: v.file_name,
+                fileSize: v.file_size ?? undefined,
+                mimeType: v.mime_type ?? undefined,
+                isNew: false,
+              }))
+          : [];
+      setEditVideos(vids);
+
       setEditImages([]);
+      setShowEditFormatDropdown(false);
       setEditing(false);
     } catch (err) {
       setError(
@@ -387,6 +584,23 @@ export default function FormatDetailPage() {
           .filter(Boolean) as string[];
         if (paths.length > 0) {
           await supabase.storage.from("ad-formats").remove(paths);
+        }
+      }
+
+      // Remove all videos from storage
+      if (format.case_videos && format.case_videos.length > 0) {
+        const videoPaths = format.case_videos
+          .map((v) => {
+            try {
+              const u = new URL(v.video_url);
+              return u.pathname.split("/").slice(-2).join("/");
+            } catch {
+              return null;
+            }
+          })
+          .filter(Boolean) as string[];
+        if (videoPaths.length > 0) {
+          await supabase.storage.from("ad-formats").remove(videoPaths);
         }
       }
 
@@ -626,9 +840,10 @@ export default function FormatDetailPage() {
                     <select
                       name="format_type"
                       value={editData.format_type || ""}
-                      onChange={handleEditChange}
+                      onChange={(e) => handleEditFormatTypeChange(e.target.value)}
                       className="input-field"
                     >
+                      <option value="">Selecione...</option>
                       {FORMAT_TYPES.map((t) => (
                         <option key={t} value={t}>
                           {t}
@@ -653,6 +868,72 @@ export default function FormatDetailPage() {
                     </select>
                   </div>
                 </div>
+
+                {/* Outros: custom format name */}
+                {isOutros(editData.format_type || "") && (
+                  <div className="animate-fade-in rounded-xl border border-globo-100 bg-globo-50/40 p-4">
+                    <label className="label-field">Nome do formato</label>
+                    <input
+                      type="text"
+                      name="outros_formato_name"
+                      value={editData.outros_formato_name || ""}
+                      onChange={handleEditChange}
+                      placeholder="Ex: Formato Especial XYZ"
+                      className="input-field"
+                    />
+                  </div>
+                )}
+
+                {/* Home Day: additional formats */}
+                {isHomeDay(editData.format_type || "") && (
+                  <div className="animate-fade-in rounded-xl border border-globo-100 bg-globo-50/40 p-4">
+                    <label className="label-field">Formatos incluídos</label>
+                    {editData.additional_formats && editData.additional_formats.length > 0 && (
+                      <div className="mb-3 flex flex-wrap gap-2">
+                        {editData.additional_formats.map((fmt) => (
+                          <span
+                            key={fmt}
+                            className="inline-flex items-center gap-1.5 rounded-lg bg-globo-600 px-3 py-1.5 text-xs font-semibold text-white shadow-soft"
+                          >
+                            {fmt}
+                            <button
+                              type="button"
+                              onClick={() => removeEditAdditionalFormat(fmt)}
+                              className="ml-0.5 flex h-4 w-4 items-center justify-center rounded-full bg-globo-700 transition-colors hover:bg-globo-800"
+                            >
+                              <X className="h-3 w-3" />
+                            </button>
+                          </span>
+                        ))}
+                      </div>
+                    )}
+                    {showEditFormatDropdown ? (
+                      <select
+                        autoFocus
+                        value=""
+                        onChange={(e) => {
+                          if (e.target.value) addEditAdditionalFormat(e.target.value);
+                        }}
+                        onBlur={() => setShowEditFormatDropdown(false)}
+                        className="input-field"
+                      >
+                        <option value="">Selecione um formato para adicionar...</option>
+                        {availableEditAdditionalFormats.map((f) => (
+                          <option key={f} value={f}>{f}</option>
+                        ))}
+                      </select>
+                    ) : (
+                      <button
+                        type="button"
+                        onClick={() => setShowEditFormatDropdown(true)}
+                        className="inline-flex items-center gap-2 rounded-lg border border-dashed border-globo-300 bg-white px-4 py-2.5 text-sm font-medium text-globo-600 transition-all hover:border-globo-400 hover:bg-globo-50"
+                      >
+                        <Plus className="h-4 w-4" />
+                        Adicionar formato
+                      </button>
+                    )}
+                  </div>
+                )}
 
                 <div className="grid grid-cols-2 gap-3">
                   <div>
@@ -770,12 +1051,76 @@ export default function FormatDetailPage() {
                   </div>
                 </div>
 
+                {/* Edit Video files */}
+                <div>
+                  <label className="label-field">
+                    <span className="inline-flex items-center gap-1.5">
+                      <Film className="h-4 w-4 text-slate-400" />
+                      Vídeos do dispositivo
+                    </span>
+                  </label>
+                  <input
+                    ref={editVideoInputRef}
+                    type="file"
+                    accept="video/*"
+                    multiple
+                    onChange={handleEditVideoSelect}
+                    className="hidden"
+                  />
+                  {editVideos.length === 0 ? (
+                    <button
+                      type="button"
+                      onClick={() => editVideoInputRef.current?.click()}
+                      className="flex w-full flex-col items-center justify-center rounded-xl border-2 border-dashed border-slate-300 bg-slate-50 py-8 transition-all hover:border-globo-400 hover:bg-globo-50/50"
+                    >
+                      <UploadCloud className="h-6 w-6 text-slate-400" />
+                      <p className="mt-2 text-xs font-medium text-slate-600">Adicionar vídeo</p>
+                    </button>
+                  ) : (
+                    <div className="space-y-2">
+                      {editVideos.map((v, index) => (
+                        <div
+                          key={index}
+                          className={`flex items-center gap-3 rounded-xl border px-3 py-2.5 transition-all ${
+                            v.markedForDeletion ? "border-red-300 bg-red-50/40 opacity-50" : "border-slate-200 bg-slate-50"
+                          }`}
+                        >
+                          <FileVideo className="h-5 w-5 flex-shrink-0 text-globo-600" />
+                          <div className="min-w-0 flex-1">
+                            <p className="truncate text-xs font-medium text-slate-700">{v.fileName}</p>
+                            {v.fileSize != null && (
+                              <p className="text-[11px] text-slate-400">{formatFileSize(v.fileSize)}</p>
+                            )}
+                          </div>
+                          <button
+                            type="button"
+                            onClick={() => removeEditVideo(index)}
+                            className={`flex h-7 w-7 flex-shrink-0 items-center justify-center rounded-lg transition-all ${
+                              v.markedForDeletion ? "bg-globo-600 text-white" : "text-slate-400 hover:bg-red-50 hover:text-red-600"
+                            }`}
+                          >
+                            {v.markedForDeletion ? <Plus className="h-4 w-4" /> : <X className="h-4 w-4" />}
+                          </button>
+                        </div>
+                      ))}
+                      <button
+                        type="button"
+                        onClick={() => editVideoInputRef.current?.click()}
+                        className="flex w-full items-center justify-center gap-2 rounded-xl border border-slate-200 py-2.5 text-sm font-medium text-slate-600 transition-all hover:border-globo-300 hover:bg-globo-50/50 hover:text-globo-600"
+                      >
+                        <Plus className="h-4 w-4" />
+                        Adicionar mais vídeos
+                      </button>
+                    </div>
+                  )}
+                </div>
+
                 {/* Edit Links */}
                 <div>
                   <label className="label-field">
                     <span className="inline-flex items-center gap-1.5">
                       <Video className="h-4 w-4 text-slate-400" />
-                      Vídeos e Links
+                      Links externos
                     </span>
                   </label>
                   <div className="flex gap-2">
@@ -852,7 +1197,7 @@ export default function FormatDetailPage() {
               <div className="space-y-4">
                 <div className="flex flex-wrap items-center gap-2">
                   <span className="badge bg-globo-50 text-globo-700">
-                    {format.format_type}
+                    {isHomeDay(format.format_type) ? "Home Day" : format.format_type}
                   </span>
                   {format.vertical && format.vertical !== "Outros" && (
                     <span className="badge bg-slate-100 text-slate-500">
@@ -869,6 +1214,36 @@ export default function FormatDetailPage() {
                 <h1 className="text-xl font-bold leading-tight tracking-tight text-slate-900">
                   {format.title}
                 </h1>
+
+                {/* Format details: Home Day additional formats */}
+                {isHomeDay(format.format_type) && format.additional_formats && format.additional_formats.length > 0 && (
+                  <div className="rounded-xl border border-globo-100 bg-globo-50/40 p-4">
+                    <p className="mb-2 text-xs font-semibold uppercase tracking-wider text-slate-400">
+                      Formato principal
+                    </p>
+                    <p className="text-sm font-semibold text-globo-700">Home Day</p>
+                    <p className="mb-2 mt-3 text-xs font-semibold uppercase tracking-wider text-slate-400">
+                      Formatos incluídos
+                    </p>
+                    <div className="flex flex-wrap gap-2">
+                      {format.additional_formats.map((fmt) => (
+                        <span key={fmt} className="badge bg-white text-globo-700 border border-globo-100">
+                          {fmt}
+                        </span>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {/* Format details: Outros custom name */}
+                {isOutros(format.format_type) && format.outros_formato_name && (
+                  <div className="rounded-xl border border-globo-100 bg-globo-50/40 p-4">
+                    <p className="mb-1 text-xs font-semibold uppercase tracking-wider text-slate-400">
+                      Formato
+                    </p>
+                    <p className="text-sm font-semibold text-globo-700">{format.outros_formato_name}</p>
+                  </div>
+                )}
 
                 {/* Metadata grid */}
                 <div className="grid grid-cols-2 gap-3 rounded-xl bg-slate-50 p-4 text-sm">
@@ -903,11 +1278,38 @@ export default function FormatDetailPage() {
                   </div>
                 )}
 
+                {/* Uploaded videos */}
+                {format.case_videos && format.case_videos.length > 0 && (
+                  <div className="border-t border-slate-100 pt-4">
+                    <h3 className="mb-3 flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wider text-slate-400">
+                      <Film className="h-3.5 w-3.5" />
+                      Vídeos
+                    </h3>
+                    <div className="space-y-3">
+                      {format.case_videos.map((video) => (
+                        <div key={video.id} className="overflow-hidden rounded-xl border border-slate-200 bg-slate-50">
+                          <video controls className="w-full" preload="metadata">
+                            <source src={video.video_url} type={video.mime_type || "video/mp4"} />
+                          </video>
+                          <div className="flex items-center gap-2 px-3 py-2">
+                            <FileVideo className="h-4 w-4 flex-shrink-0 text-globo-600" />
+                            <span className="flex-1 truncate text-xs text-slate-600">{video.file_name}</span>
+                            {video.file_size != null && (
+                              <span className="text-[11px] text-slate-400">{formatFileSize(video.file_size)}</span>
+                            )}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {/* External video links */}
                 {format.video_links && format.video_links.length > 0 && (
                   <div className="border-t border-slate-100 pt-4">
                     <h3 className="mb-2 flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wider text-slate-400">
                       <Video className="h-3.5 w-3.5" />
-                      Vídeos e Links
+                      Links externos
                     </h3>
                     <div className="space-y-2">
                       {format.video_links.map((link, i) => (
@@ -1018,7 +1420,7 @@ export default function FormatDetailPage() {
             </div>
             <p className="mb-6 text-sm leading-relaxed text-slate-600">
               Tem certeza que deseja excluir <strong>"{format.title}"</strong>?
-              Esta ação não pode ser desfeita e todas as imagens serão removidas
+              Esta ação não pode ser desfeita e todas as imagens e vídeos serão removidos
               permanentemente.
             </p>
             <div className="flex items-center justify-end gap-3">
